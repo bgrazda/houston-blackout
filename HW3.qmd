@@ -1,0 +1,40 @@
+---
+title: "Assignment 3"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(spDataLarge)
+library(geodata)
+library(terra)
+library(terra)
+library(stars)
+```
+
+```{r}
+# Read in nightlight grid data
+horiz_d7_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
+vert_d7_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
+horiz_d8_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
+vert_d8_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
+
+# Read in socioeconomic data and list of layers in folder
+texas_list <- st_layers(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"))
+texas <- read_sf(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'ACS_2019_5YR_TRACT_48_TEXAS')
+
+# Read in Road data
+roads <- read_sf(here::here("data", "gis_osm_roads_free_1.gpkg"))
+
+# Read in building data
+buildings <- read_sf(here::here("data", "gis_osm_buildings_a_free_1.gpkg"))
+```
+
+```{r}
+tm_shape(texas) +
+  tm_polygons()
+```
+
