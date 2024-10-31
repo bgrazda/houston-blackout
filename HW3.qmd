@@ -16,10 +16,10 @@ library(stars)
 
 ```{r}
 # Read in nightlight grid data
-horiz_d7_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
-vert_d7_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
-horiz_d16_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
-vert_d16_tile <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
+day7_tile5 <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
+day7_tile6 <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
+day16_tile5 <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
+day16_tile6 <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
 
 # Read in socioeconomic data and list of layers in folder
 texas_list <- st_layers(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"))
@@ -42,7 +42,7 @@ buildings <- read_sf(here::here("data", "gis_osm_buildings_a_free_1.gpkg"))
 Combine SpatRaster Tiles and find difference in light intensity between two days
 ```{r}
 # Check extents before combining the tiles
-if(terra::ext(horiz_d7_tile) == terra::ext(vert_d7_tile)){
+if(terra::ext(day7_tile5) == terra::ext(day7_tile6)){
   print("extents match")
 } else{
   warning("extents do not match")
@@ -50,10 +50,10 @@ if(terra::ext(horiz_d7_tile) == terra::ext(vert_d7_tile)){
 # Extents do not match, but that is okay because we are merging datasets
 
 # Merge day rasters 
-day7_intensity <- merge(horiz_d7_tile, vert_d7_tile)
-day16_intensity <- merge(horiz_d16_tile, vert_d16_tile)
+day7_intensity <- mosaic(day7_tile5, day7_tile6) 
+day16_intensity <- mosaic(day16_tile5, day16_tile6)
 
-crs(day7_intensity) == crs(day16_intensity)
+
 
 # Find the change in night lights intensity (presumably) caused by the storm
 # We expect that day 16 intensity will be less than day 7, or before the storm
@@ -64,28 +64,24 @@ Reclassify the difference raster and assign less than 200 to NA
 ```{r}
 
 # Make a new matrix to reclassify to
-rcl <- matrix(c(-Inf, 200, 1, # group 1: less than 200
-                200, Inf, 2), # group 2: greater than 200 (experience blackout)
+rcl <- matrix(c(-10000, 200, 1, # group 1: less than 200
+                200, 10000, NA), # group 2: greater than 200 (experience blackout)
                 ncol = 3, byrow = TRUE)
 
 # Create new reclassified SpatRaster that we can make NA's for over 200 (those that experience a blackout)
 reclassified_diff <- classify(intensity_diff, rcl = rcl)
 
-tm_shape(reclassified_diff) +
-  tm_raster()
-
-# change reclassified values into factors
+# change reclassified values into factors, categorize variables instead of continuous
 values(reclassified_diff) <- as.factor(values(reclassified_diff))
 
-tm_shape(reclassified_diff) +
-  tm_raster()
 
+
+# intensity_mask <- reclassified_diff
 # Mask so that any values less than 200 equal NA
-reclassified_diff[reclassified_diff < 200] <- NA
+#intensity_diff[intensity_diff > 200] <- NA
+#values(intensity_diff) <- as.factor(values(intensity_diff))
 
-
-
-tm_shape(reclassified_diff) +
+tm_shape(intensity_diff) +
   tm_raster()
 ```
 
@@ -94,40 +90,53 @@ tm_shape(reclassified_diff) +
 Vectorize the Raster
 ```{r}
 # Vectorize the raster
-intensity_mask_poly <- terra::as.polygons(reclassified_diff, values = TRUE, round = FALSE) |> 
-  st_as_sf() |> 
-  st_make_valid()
+intensity_mask_poly <- terra::as.polygons(reclassified_diff) |> 
+  st_as_sf() 
+
+
 ```
 
+
 ```{r}
-tm_shape(intensity_mask_poly) +
+# Blackout mask polygon
+houston_box <- c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5)
+
+blackout_mask <- st_crop(intensity_mask_poly, houston_box) |> 
+  st_transform(3083)
+
+tm_shape(blackout_mask) +
   tm_polygons()
-```
 
-
-Crop the Nightlight Vector
-```{r}
-mask1 <- matrix(c(-96.5, 2), ncol = 2)
-mask2 <- matrix(c(-96.5, 30.5), ncol = 2)
-mask3 <- matrix(c(-94.5, 30.5), ncol = 2)
-mask4 <- matrix(c(-94.5, 29), ncol = 2)
-
-blackout_subset <- intensity_mask_poly[mask1]
-# create a raster with a smaller extent
-clip <- rast(xmin = -113.3, xmax = -113, ymin = 37.2, ymax = 37.9,
-            resolution = 0.3,
+# Pre light
+clip1 <- rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
+            resolution = res(day7_intensity),
             vals = 1)
 
-# select values that fall within smaller extent
-zion_elevation_clip <- zion_elevation[clip]
+pre_lights_houston <- day7_intensity[clip1, drop = FALSE]
 
-# verify that output has fewer values than original
-if(ncell(zion_elevation) == nrow(zion_elevation_clip)) {
-  warning("clipping did not remove cells")
-} else {
-  print("clipping removed cells")
-}
+
+tm_shape(pre_lights_houston) +
+  tm_raster(style = 'cont', 
+            palette = viridisLite::viridis(5))
+
+# Post Light
+clip2 <- rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
+            resolution = res(day16_intensity),
+            vals = 1)
+
+post_lights_houston <- day16_intensity[clip2, drop = FALSE]
+
+
+tm_shape(post_lights_houston) +
+  tm_raster(style = 'cont',
+            breaks = c(0, 2000, 4000, 6000, 8000),
+            palette = viridisLite::viridis(5))
 ```
+
+```{r}
+
+```
+
 
 
 ```{r}
