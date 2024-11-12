@@ -16,128 +16,174 @@ library(stars)
 
 ```{r}
 # Read in nightlight grid data
-day7_tile5 <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
-day7_tile6 <- rast(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
-day16_tile5 <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
-day16_tile6 <- rast(here::here("data/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
+day7_tile5 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
+day7_tile6 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
+day16_tile5 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
+day16_tile6 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
 
 # Read in socioeconomic data and list of layers in folder
 texas_list <- st_layers(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"))
-texas <- read_sf(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'ACS_2019_5YR_TRACT_48_TEXAS')
+texas <- st_read(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'ACS_2019_5YR_TRACT_48_TEXAS')
 
 # Read in Road data
-roads <- read_sf(here::here("data", "gis_osm_roads_free_1.gpkg"))
+roads <- st_read(here::here("data", "gis_osm_roads_free_1.gpkg"), 
+                 query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'")
 
 # Read in building data
-buildings <- read_sf(here::here("data", "gis_osm_buildings_a_free_1.gpkg"))
+buildings <- st_read(here::here("data", "gis_osm_buildings_a_free_1.gpkg"),
+                     query = "SELECT *
+                      FROM gis_osm_buildings_a_free_1
+                      WHERE (type IS NULL AND name IS NULL)
+                      OR type in ('residential', 'apartments', 'house', 'static_caravan', 'detached')")
 ```
 
 ```{r}
-# Check to make sure CRS match
-
-
+# Make sure CRS match
+st_crs(day7_tile5) == st_crs(day7_tile6)
+st_crs(day16_tile5) == st_crs(day16_tile6)
 ```
-
 
 Combine SpatRaster Tiles and find difference in light intensity between two days
+
 ```{r}
 # Check extents before combining the tiles
-if(terra::ext(day7_tile5) == terra::ext(day7_tile6)){
-  print("extents match")
-} else{
-  warning("extents do not match")
-}
+
 # Extents do not match, but that is okay because we are merging datasets
 
 # Merge day rasters 
-day7_intensity <- mosaic(day7_tile5, day7_tile6) 
-day16_intensity <- mosaic(day16_tile5, day16_tile6)
+day7_intensity <- st_mosaic(day7_tile5, day7_tile6) 
+day16_intensity <- st_mosaic(day16_tile5, day16_tile6)
 
 
 
 # Find the change in night lights intensity (presumably) caused by the storm
 # We expect that day 16 intensity will be less than day 7, or before the storm
-intensity_diff <- day16_intensity - day7_intensity
-```
+intensity_diff <- day7_intensity - day16_intensity 
 
-Reclassify the difference raster and assign less than 200 to NA
-```{r}
+intensity_diff[intensity_diff < 200] <-  NA 
 
-# Make a new matrix to reclassify to
-rcl <- matrix(c(-10000, 200, 1, # group 1: less than 200
-                200, 10000, NA), # group 2: greater than 200 (experience blackout)
-                ncol = 3, byrow = TRUE)
-
-# Create new reclassified SpatRaster that we can make NA's for over 200 (those that experience a blackout)
-reclassified_diff <- classify(intensity_diff, rcl = rcl)
-
-# change reclassified values into factors, categorize variables instead of continuous
-values(reclassified_diff) <- as.factor(values(reclassified_diff))
-
-
-
-# intensity_mask <- reclassified_diff
-# Mask so that any values less than 200 equal NA
-#intensity_diff[intensity_diff > 200] <- NA
-#values(intensity_diff) <- as.factor(values(intensity_diff))
-
-tm_shape(intensity_diff) +
-  tm_raster()
-```
-
-
-
-Vectorize the Raster
-```{r}
 # Vectorize the raster
-intensity_mask_poly <- terra::as.polygons(reclassified_diff) |> 
-  st_as_sf() 
+intensity_mask_poly <- intensity_diff |> 
+  st_as_sf() |> 
+  st_make_valid() 
+```
 
 
+
+```{r}
+
+# Blackout mask polygon
+houston_box <- st_bbox(c(xmin = -96.5, 
+                 ymin = 29, 
+                 xmax = -94.5, 
+                 ymax = 30.5)) |> 
+  st_as_sfc() |> 
+  st_as_sf() |> 
+  st_set_crs(st_crs(intensity_mask_poly)) |> 
+  st_transform(crs = 3083)
+
+intensity_mask_poly <- st_transform(intensity_mask_poly, crs = 3083)
+
+
+# Crop the mask to zoom into around Houston
+blackout_mask <- st_intersection(intensity_mask_poly, houston_box) 
+
+# Blackout Mask is too large to just plot alone, so we must extract each of the geometries we want
+# blackout_points <- sf::st_collection_extract(blackout_mask, type = "POINT")
+# blackout_lines <- sf::st_collection_extract(blackout_mask, type = "LINESTRING")
+# blackout_polys <- sf::st_collection_extract(blackout_mask, type = "POLYGON")
+# 
+# # Bind all geometries
+# blackout_mask_bind <- rbind(blackout_points, blackout_lines, blackout_polys) |> 
+#   st_transform(3083)
+
+# Look at Blackout Mask
+
+
+# # Pre light
+# clip1 <- terra::rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
+#             resolution = st_res(day7_intensity),
+#             vals = 1) 
+# # Subset to the area specified by the bounds of clip1 raster template
+# pre_lights_houston <- day7_intensity[clip1, i = TRUE, drop = FALSE, proxy = FALSE]
+
+# plot(pre_lights_houston)
+```
+
+```{r}
+# Check CRS
+
+if(st_crs(houston_box) == st_crs(day7_intensity)) {
+  print("Coordinate reference systems match")
+} else{
+  warning("Updating coordinate reference systems to match")
+  # transform data to match
+  houston_box <- st_transform(houston_box, st_crs(day7_intensity))
+}
 ```
 
 
 ```{r}
-# Blackout mask polygon
-houston_box <- c(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5)
-
-blackout_mask <- st_crop(intensity_mask_poly, houston_box) |> 
-  st_transform(3083)
-
 tm_shape(blackout_mask) +
-  tm_polygons()
+  tm_polygons() +
+  tm_layout(main.title = "Blackout Mask")
 
-# Pre light
-clip1 <- rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
-            resolution = res(day7_intensity),
-            vals = 1)
+houston_before <- st_crop(day7_intensity, houston_box) 
 
-pre_lights_houston <- day7_intensity[clip1, drop = FALSE]
-
-
-tm_shape(pre_lights_houston) +
-  tm_raster(style = 'cont', 
-            palette = viridisLite::viridis(5))
-
-# Post Light
-clip2 <- rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
-            resolution = res(day16_intensity),
-            vals = 1)
-
-post_lights_houston <- day16_intensity[clip2, drop = FALSE]
-
-
-tm_shape(post_lights_houston) +
+tm_shape(houston_before) +
   tm_raster(style = 'cont',
             breaks = c(0, 2000, 4000, 6000, 8000),
-            palette = viridisLite::viridis(5))
+            palette = viridisLite::viridis(3),
+            title = expression('Light Intensity nW cm'^-2*'sr'^-1)) +
+  tm_layout(main.title = 'Houston Night Lights Before Storm on 2021-02-07',
+            main.title.size = 1.2,
+            legend.outside = FALSE,
+            fontfamily = 'Times',
+            legend.bg.color = 'grey',
+            legend.bg.alpha = .3) +
+  tm_compass() +
+  tm_scale_bar()
+
+ # Post Light
+houston_after <- st_crop(day16_intensity, houston_box)
+
+
+tm_shape(houston_after) +
+  tm_raster(style = 'cont',
+            breaks = c(0, 2000, 4000, 6000, 8000),
+            stretch.palette = TRUE,
+            palette = viridisLite::viridis(5),
+            title = expression('Light Intensity nW cm'^-2*'sr'^-1)) +
+   tm_layout(main.title = 'Houston Night Lights After Storm on 2021-02-016',
+            main.title.size = 1.2,
+            legend.outside = FALSE,
+            fontfamily = 'Times',
+            legend.bg.color = 'grey',
+            legend.bg.alpha = .3) +
+  tm_compass() +
+  tm_scale_bar()
 ```
 
 ```{r}
 
+highways <- st_buffer(roads, dist = 200) |> 
+  st_union() |> 
+  st_as_sf() 
+
+if(crs(highways) == crs(houston_box)){
+  print('CRS Matches')
+}else{
+  st_transform(highways, crs = crs(houston_box))
+}
+
+tmap_options(check.and.fix = TRUE)
+tm_shape(highways) +
+  tm_polygons()
+
+
+
+
 ```
-
-
 
 ```{r}
 tm_shape(texas) +
