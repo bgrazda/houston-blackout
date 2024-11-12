@@ -41,6 +41,8 @@ buildings <- st_read(here::here("data", "gis_osm_buildings_a_free_1.gpkg"),
 # Make sure CRS match
 st_crs(day7_tile5) == st_crs(day7_tile6)
 st_crs(day16_tile5) == st_crs(day16_tile6)
+
+
 ```
 
 Combine SpatRaster Tiles and find difference in light intensity between two days
@@ -88,6 +90,9 @@ intensity_mask_poly <- st_transform(intensity_mask_poly, crs = 3083)
 # Crop the mask to zoom into around Houston
 blackout_mask <- st_intersection(intensity_mask_poly, houston_box) 
 
+# Reproject to ESPG 2083
+blackout_mask_3083 <- st_transform(blackout_mask, crs = 'EPSG:3083')
+
 # Blackout Mask is too large to just plot alone, so we must extract each of the geometries we want
 # blackout_points <- sf::st_collection_extract(blackout_mask, type = "POINT")
 # blackout_lines <- sf::st_collection_extract(blackout_mask, type = "LINESTRING")
@@ -120,13 +125,23 @@ if(st_crs(houston_box) == st_crs(day7_intensity)) {
   # transform data to match
   houston_box <- st_transform(houston_box, st_crs(day7_intensity))
 }
+
+
 ```
 
 
 ```{r}
-tm_shape(blackout_mask) +
-  tm_polygons() +
-  tm_layout(main.title = "Blackout Mask")
+tm_shape(blackout_mask_3083) +
+  tm_polygons(col = 'white') +
+  tm_layout(main.title = 'Houston Blackout',
+            bg.color = 'black',
+            fontfamily = 'Times') +
+  tm_credits(expression('Houston Blackout Areas that Experienced Greater than 200 nW cm'^-2*'sr'^-1*'Drop Indicated in Grey'),
+             size = 0.7,
+             width = 1,
+             position = c('LEFT', 'TOP'),
+             bg.color = 'lightgrey',
+             bg.alpha = .5)
 
 houston_before <- st_crop(day7_intensity, houston_box) 
 
@@ -140,7 +155,7 @@ tm_shape(houston_before) +
             legend.outside = FALSE,
             fontfamily = 'Times',
             legend.bg.color = 'grey',
-            legend.bg.alpha = .3) +
+            legend.bg.alpha = .4) +
   tm_compass() +
   tm_scale_bar()
 
@@ -165,15 +180,18 @@ tm_shape(houston_after) +
 ```
 
 ```{r}
+# Transform the roads CRS
+roads_3083 <- st_transform(roads, crs = "EPSG:3083")
 
-highways <- st_buffer(roads, dist = 200) |> 
+# Create highway buffer within 200 meters
+highways <- st_buffer(roads_3083, dist = 200) |> 
   st_union() |> 
   st_as_sf() 
 
-if(crs(highways) == crs(houston_box)){
-  print('CRS Matches')
+if(st_crs(highways) == st_crs(blackout_mask_3083)){
+  print('TRUE, CRS of both sf objects match')
 }else{
-  st_transform(highways, crs = crs(houston_box))
+  stop("FALSE, check that CRS of both sf objects match")
 }
 
 tmap_options(check.and.fix = TRUE)
@@ -181,9 +199,48 @@ tm_shape(highways) +
   tm_polygons()
 
 
+if(st_crs(blackout_mask) == st_crs(highways)) {
+  print("Coordinate reference systems match")
+} else{
+  warning("Updating coordinate reference systems to match")
+  # transform data to match
+  highways <- st_transform(highways, st_crs(blackout_mask))
+}
+
+# Mask the highways out of the blackout data 
+blackout_highways <- st_difference(blackout_mask_3083, highways)
+
+# test that length of new blackout mask is shorter than length of old blackout mask
+invisible(ifelse(nrow(blackout_highways) < nrow(blackout_mask_3083), (print(paste0("TRUE, new sf object is shorter than old sf object by ", (nrow(blackout_mask_3083) - nrow(blackout_highways)), " rows"))), (print("FALSE, new sf object is NOT shorter than old sf object, check crop methods")))) 
+
+# test that all values in the new blackout mask are unique
+invisible(ifelse(nrow(unique(blackout_highways)) == nrow((blackout_highways)), (print("TRUE, all values in new sf object are unique")), (print("FALSE, not all values in new sf object are unique"))))
+
+# Exploratory plots
+plot(blackout_highways)
+plot(highways)
+plot(blackout_mask)
 
 
 ```
+# Identify homes impacted by blackouts
+```{r}
+# Transform CRS
+buildings_3083 <- st_transform(buildings, crs = "EPSG:3083")
+
+if(st_crs(buildings_3083) == st_crs(blackout_highways)) {
+  print("CRS matches")
+} else{
+  stop("Update coordinate reference systems to match")
+}
+
+blackout_homes <- buildings_3083[blackout_highways, op = st_intersects] %>%
+  dplyr::select("osm_id", "fclass", "geom") %>%
+  st_make_valid()
+
+invisible(ifelse(nrow(unique(blackout_homes)) == nrow((blackout_homes)), (print("TRUE, all values in new sf object are unique")), (print("FALSE, not all values in new sf object are unique"))))
+```
+
 
 ```{r}
 tm_shape(texas) +
