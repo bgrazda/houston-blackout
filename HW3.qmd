@@ -2,9 +2,15 @@
 title: "Assignment 3"
 format: html
 editor: visual
+execute: 
+  warning: false
+  message: false
+  eval: true
 ---
 
 ```{r}
+#| code-fold: true
+#| 
 library(tidyverse)
 library(sf)
 library(tmap)
@@ -15,6 +21,10 @@ library(stars)
 ```
 
 ```{r}
+#| code-fold: true
+#| output: false
+#| quiet: true
+
 # Read in nightlight grid data
 day7_tile5 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
 day7_tile6 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
@@ -24,6 +34,8 @@ day16_tile6 <- stars::read_stars(here::here("data/VNP46A1/VNP46A1.A2021047.h08v0
 # Read in socioeconomic data and list of layers in folder
 texas_list <- st_layers(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"))
 texas <- st_read(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'ACS_2019_5YR_TRACT_48_TEXAS')
+income <- st_read(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'X19_INCOME')
+metadata <- st_read(here::here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = 'TRACT_METADATA_2019')
 
 # Read in Road data
 roads <- st_read(here::here("data", "gis_osm_roads_free_1.gpkg"), 
@@ -41,16 +53,12 @@ buildings <- st_read(here::here("data", "gis_osm_buildings_a_free_1.gpkg"),
 # Make sure CRS match
 st_crs(day7_tile5) == st_crs(day7_tile6)
 st_crs(day16_tile5) == st_crs(day16_tile6)
-
-
 ```
 
 Combine SpatRaster Tiles and find difference in light intensity between two days
 
 ```{r}
-# Check extents before combining the tiles
-
-# Extents do not match, but that is okay because we are merging datasets
+#| code-fold: true
 
 # Merge day rasters 
 day7_intensity <- st_mosaic(day7_tile5, day7_tile6) 
@@ -70,9 +78,8 @@ intensity_mask_poly <- intensity_diff |>
   st_make_valid() 
 ```
 
-
-
 ```{r}
+#| code-fold: true
 
 # Blackout mask polygon
 houston_box <- st_bbox(c(xmin = -96.5, 
@@ -93,29 +100,11 @@ blackout_mask <- st_intersection(intensity_mask_poly, houston_box)
 # Reproject to ESPG 2083
 blackout_mask_3083 <- st_transform(blackout_mask, crs = 'EPSG:3083')
 
-# Blackout Mask is too large to just plot alone, so we must extract each of the geometries we want
-# blackout_points <- sf::st_collection_extract(blackout_mask, type = "POINT")
-# blackout_lines <- sf::st_collection_extract(blackout_mask, type = "LINESTRING")
-# blackout_polys <- sf::st_collection_extract(blackout_mask, type = "POLYGON")
-# 
-# # Bind all geometries
-# blackout_mask_bind <- rbind(blackout_points, blackout_lines, blackout_polys) |> 
-#   st_transform(3083)
-
-# Look at Blackout Mask
-
-
-# # Pre light
-# clip1 <- terra::rast(xmin = -96.5, ymin = 29, xmax = -94.5, ymax = 30.5,
-#             resolution = st_res(day7_intensity),
-#             vals = 1) 
-# # Subset to the area specified by the bounds of clip1 raster template
-# pre_lights_houston <- day7_intensity[clip1, i = TRUE, drop = FALSE, proxy = FALSE]
-
-# plot(pre_lights_houston)
 ```
 
 ```{r}
+#| code-fold: true
+
 # Check CRS
 
 if(st_crs(houston_box) == st_crs(day7_intensity)) {
@@ -129,8 +118,9 @@ if(st_crs(houston_box) == st_crs(day7_intensity)) {
 
 ```
 
-
 ```{r}
+#| code-fold: true
+
 tm_shape(blackout_mask_3083) +
   tm_polygons(col = 'white') +
   tm_layout(main.title = 'Houston Blackout',
@@ -180,6 +170,8 @@ tm_shape(houston_after) +
 ```
 
 ```{r}
+#| code-fold: true
+
 # Transform the roads CRS
 roads_3083 <- st_transform(roads, crs = "EPSG:3083")
 
@@ -194,9 +186,9 @@ if(st_crs(highways) == st_crs(blackout_mask_3083)){
   stop("FALSE, check that CRS of both sf objects match")
 }
 
-tmap_options(check.and.fix = TRUE)
-tm_shape(highways) +
-  tm_polygons()
+# tmap_options(check.and.fix = TRUE)
+# tm_shape(highways) +
+#   tm_polygons()
 
 
 if(st_crs(blackout_mask) == st_crs(highways)) {
@@ -210,39 +202,126 @@ if(st_crs(blackout_mask) == st_crs(highways)) {
 # Mask the highways out of the blackout data 
 blackout_highways <- st_difference(blackout_mask_3083, highways)
 
-# test that length of new blackout mask is shorter than length of old blackout mask
-invisible(ifelse(nrow(blackout_highways) < nrow(blackout_mask_3083), (print(paste0("TRUE, new sf object is shorter than old sf object by ", (nrow(blackout_mask_3083) - nrow(blackout_highways)), " rows"))), (print("FALSE, new sf object is NOT shorter than old sf object, check crop methods")))) 
-
-# test that all values in the new blackout mask are unique
-invisible(ifelse(nrow(unique(blackout_highways)) == nrow((blackout_highways)), (print("TRUE, all values in new sf object are unique")), (print("FALSE, not all values in new sf object are unique"))))
-
 # Exploratory plots
-plot(blackout_highways)
-plot(highways)
-plot(blackout_mask)
-
-
+#plot(blackout_highways)
+#plot(highways)
+#plot(blackout_mask)
 ```
+
 # Identify homes impacted by blackouts
+
 ```{r}
+#| code-fold: true
+
 # Transform CRS
 buildings_3083 <- st_transform(buildings, crs = "EPSG:3083")
 
+# Make sure that CRS matches, stop if otherwise; both should be EPSG: 3083
 if(st_crs(buildings_3083) == st_crs(blackout_highways)) {
   print("CRS matches")
 } else{
   stop("Update coordinate reference systems to match")
 }
 
+# Subset from the buildings df where it intersects with blackout highways and keep specific columns, do not drop geometry
 blackout_homes <- buildings_3083[blackout_highways, op = st_intersects] %>%
-  dplyr::select("osm_id", "fclass", "geom") %>%
   st_make_valid()
 
-invisible(ifelse(nrow(unique(blackout_homes)) == nrow((blackout_homes)), (print("TRUE, all values in new sf object are unique")), (print("FALSE, not all values in new sf object are unique"))))
+if(nrow(unique(blackout_homes)) == nrow(blackout_homes)){
+  print("TRUE, all values in new sf object are unique")
+}else{
+  warning('Not all values in new sf object are unique')
+}
+
+# Count and report number of homes/ rows
+blackout_homes_logical <- nrow(blackout_homes)
+n <- sum(blackout_homes_logical)
+
+# Using original buildings_3083 df, use new sum value of homes that were in the blackout area to find more information
+print(paste0("The number of homes within the blackout area is ", n, ", which is ", round(100 * n / nrow(buildings_3083)), "% of all buildings in the area"))
 ```
 
+Identify the census tracts likely impacted by blackout
 
 ```{r}
-tm_shape(texas) +
-  tm_polygons()
+#| code-fold: true
+
+income <- income |> 
+  select('B19013e1', 'GEOID') |> 
+  rename(INCOME = 'B19013e1') |> 
+  rename(GEOID_Data = 'GEOID')
+
+census_income_join <- texas |> 
+  dplyr::select("Shape_Length", "Shape_Area", "GEOID_Data", "Shape") |> 
+  full_join(income, by = 'GEOID_Data') |> 
+  st_transform(crs = 'EPSG:3083')
+
+
+if(st_crs(census_income_join) == st_crs(blackout_homes)){
+  print("CRS matches!")
+}else{
+  stop('Recheck CRS')
+}
+
+# Re transform to match
+houston_box <- st_transform(houston_box, crs = 'EPSG:3083')
+
+# We want to zoom in on just Houston, on homes affected by the blackout
+blackout_census_tracts <- st_crop(census_income_join, houston_box)
+
+if(st_crs(blackout_census_tracts) == st_crs(blackout_homes)){
+  print("CRS matches!")
+}else{
+  warning('Updating CRS to match')
+  blackout_census_tracts <- st_transform(texas, crs = 'EPSG:3083')
+}
+
+# Join the census and income df with the blackout homes, and filter for buildings to rule out missing data
+tracts_blackouts <- st_join(census_income_join, blackout_homes, join = st_contains, largest = TRUE) |> 
+  filter(fclass == 'building')
+
+# filter to only tracts that had buildings that experienced blackouts
+blackout_centroids <- st_centroid(tracts_blackouts)
 ```
+
+```{r}
+tm_shape(blackout_census_tracts) +
+  tm_polygons() +
+  tm_shape(blackout_homes) +
+  tm_dots(size = .05) +
+  tm_layout(legend.outside = TRUE, 
+            main.title = 'Homes in Houston Affected by \nPower Outage on February 16th, 2021',
+            fontfamily = 'Times') +
+  tm_compass(position = c('RIGHT', 'BOTTOM'),
+             type = 'rose',
+             size = 3) +
+  tm_scale_bar(position = c('RIGHT', 'BOTTOM'))
+
+# Color blind friendly palette for plotting polygons
+color_pal <- c("#ffffcc", "#a1dab4", "#41b6c4", "#2c7fb8", "#253494")
+
+# Set base map for census tracts
+tm_shape(blackout_census_tracts) +
+  tm_polygons(col = 'INCOME',
+          palette = color_pal) +
+  # Plot the centroids
+  tm_shape(blackout_centroids) +
+  tm_dots(col = 'black') +
+  tm_layout(legend.outside = TRUE, 
+            main.title = 'Power Outage & Median Household Income in \nHouston, Texas on February 16th, 2021',
+            fontfamily = 'Times') +
+  tm_compass(position = c('RIGHT', 'BOTTOM'),
+             type = 'rose',
+             size = 3) +
+  tm_scale_bar(position = c('RIGHT', 'BOTTOM')) +
+  tm_add_legend(type = 'symbol',
+                labels = "Experienced Blackout",
+                col = 'black',
+                shape = 20,
+                size = .5)
+```
+
+```{r}
+
+```
+The next step that I would like to compare is the distribution between homes that did experience a blackout and those that did not
