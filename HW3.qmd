@@ -1,5 +1,6 @@
 ---
-title: "Assignment 3"
+title: "Assignment 3: Identifying the Impacts of Extreme Weather"
+author: "Brooke Grazda"
 format: html
 editor: visual
 execute: 
@@ -50,15 +51,19 @@ buildings <- st_read(here::here("data", "gis_osm_buildings_a_free_1.gpkg"),
 ```
 
 ```{r}
+#| code-fold: true
+#| quiet: true
+
 # Make sure CRS match
 st_crs(day7_tile5) == st_crs(day7_tile6)
 st_crs(day16_tile5) == st_crs(day16_tile6)
 ```
 
-Combine SpatRaster Tiles and find difference in light intensity between two days
 
+## Difference in Light Intensity
 ```{r}
 #| code-fold: true
+#| quiet: true
 
 # Merge day rasters 
 day7_intensity <- st_mosaic(day7_tile5, day7_tile6) 
@@ -80,6 +85,7 @@ intensity_mask_poly <- intensity_diff |>
 
 ```{r}
 #| code-fold: true
+#| quiet: true
 
 # Blackout mask polygon
 houston_box <- st_bbox(c(xmin = -96.5, 
@@ -104,6 +110,7 @@ blackout_mask_3083 <- st_transform(blackout_mask, crs = 'EPSG:3083')
 
 ```{r}
 #| code-fold: true
+#| quiet: true
 
 # Check CRS
 
@@ -120,6 +127,7 @@ if(st_crs(houston_box) == st_crs(day7_intensity)) {
 
 ```{r}
 #| code-fold: true
+#| quiet: true
 
 tm_shape(blackout_mask_3083) +
   tm_polygons(col = 'white') +
@@ -169,8 +177,9 @@ tm_shape(houston_after) +
   tm_scale_bar()
 ```
 
-```{r}
+```{r, message=FALSE}
 #| code-fold: true
+#| quiet: true
 
 # Transform the roads CRS
 roads_3083 <- st_transform(roads, crs = "EPSG:3083")
@@ -208,10 +217,11 @@ blackout_highways <- st_difference(blackout_mask_3083, highways)
 #plot(blackout_mask)
 ```
 
-# Identify homes impacted by blackouts
+## Identify Homes and Census Tracts with Blackout
 
-```{r}
+```{r, message=FALSE}
 #| code-fold: true
+#| quiet: true
 
 # Transform CRS
 buildings_3083 <- st_transform(buildings, crs = "EPSG:3083")
@@ -227,6 +237,7 @@ if(st_crs(buildings_3083) == st_crs(blackout_highways)) {
 blackout_homes <- buildings_3083[blackout_highways, op = st_intersects] %>%
   st_make_valid()
 
+# Check for unique values
 if(nrow(unique(blackout_homes)) == nrow(blackout_homes)){
   print("TRUE, all values in new sf object are unique")
 }else{
@@ -241,22 +252,25 @@ n <- sum(blackout_homes_logical)
 print(paste0("The number of homes within the blackout area is ", n, ", which is ", round(100 * n / nrow(buildings_3083)), "% of all buildings in the area"))
 ```
 
-Identify the census tracts likely impacted by blackout
 
-```{r}
+
+```{r, message=FALSE}
 #| code-fold: true
+#| quiet: true
 
+# Select income and geoid for the income data to be joined later
 income <- income |> 
   select('B19013e1', 'GEOID') |> 
   rename(INCOME = 'B19013e1') |> 
   rename(GEOID_Data = 'GEOID')
 
+# Select the texas geometries and join it with socioeconomic data
 census_income_join <- texas |> 
   dplyr::select("Shape_Length", "Shape_Area", "GEOID_Data", "Shape") |> 
   full_join(income, by = 'GEOID_Data') |> 
-  st_transform(crs = 'EPSG:3083')
+  st_transform(crs = 'EPSG:3083') # transform CRS
 
-
+# Check CRS
 if(st_crs(census_income_join) == st_crs(blackout_homes)){
   print("CRS matches!")
 }else{
@@ -284,21 +298,35 @@ tracts_blackouts <- st_join(census_income_join, blackout_homes, join = st_contai
 blackout_centroids <- st_centroid(tracts_blackouts)
 ```
 
-```{r}
+```{r, message=FALSE}
+#| code-fold: true
+#| quiet: true
+#| 
+# Color blind friendly palette for plotting polygons
+color_pal <- c("#C8D5B9", "#8FC0A9", "#68B0AB", "#9BA2FF", "#043565")
+
+# Plot the homes
 tm_shape(blackout_census_tracts) +
-  tm_polygons() +
+  tm_polygons(col = 'INCOME',
+              palette = color_pal) +
   tm_shape(blackout_homes) +
-  tm_dots(size = .05) +
+  tm_bubbles(col = "cornflowerblue",
+             border.col = 'navyblue',
+             size = .01) +
   tm_layout(legend.outside = TRUE, 
             main.title = 'Homes in Houston Affected by \nPower Outage on February 16th, 2021',
             fontfamily = 'Times') +
   tm_compass(position = c('RIGHT', 'BOTTOM'),
              type = 'rose',
-             size = 3) +
-  tm_scale_bar(position = c('RIGHT', 'BOTTOM'))
+             size = 2) +
+  tm_scale_bar(position = c('RIGHT', 'BOTTOM')) +
+  tm_add_legend(type = 'symbol',                           # Add legend for the homes with the same bubblse
+                labels = "Homes",
+                col = 'cornflowerblue', 
+                border.col = 'navyblue',
+                shape = 21,
+                size = .5)
 
-# Color blind friendly palette for plotting polygons
-color_pal <- c("#ffffcc", "#a1dab4", "#41b6c4", "#2c7fb8", "#253494")
 
 # Set base map for census tracts
 tm_shape(blackout_census_tracts) +
@@ -308,7 +336,7 @@ tm_shape(blackout_census_tracts) +
   tm_shape(blackout_centroids) +
   tm_dots(col = 'black') +
   tm_layout(legend.outside = TRUE, 
-            main.title = 'Power Outage & Median Household Income in \nHouston, Texas on February 16th, 2021',
+            main.title = 'Power Outage & Median Household Income in \nHouston, Texas Census Tracts on February 16th, 2021',
             fontfamily = 'Times') +
   tm_compass(position = c('RIGHT', 'BOTTOM'),
              type = 'rose',
@@ -321,7 +349,49 @@ tm_shape(blackout_census_tracts) +
                 size = .5)
 ```
 
-```{r}
+```{r, message=FALSE, fig.height=7}
+#| code-fold: true
+#| quiet: true
 
+# Select all the buildings income that experienced a blackout 
+income_blackout <- tracts_blackouts |> 
+  select(INCOME) |> 
+  st_drop_geometry()      # Drop geometry
+
+# Rejoin the census and blackout homes df and filter to the unrecorded homes, assuming fclass = NA means there was not a blackout
+income_noblackout <- st_join(census_income_join, blackout_homes, join = st_contains, largest = TRUE) |> 
+  filter(is.na(fclass)) |>         # Joined df above only has buildings and NA's, we selected buildings before to see the homes that did have blackout so now we select NA's
+  select(INCOME) |>  # Select income
+  st_drop_geometry()
+
+# Bind both dfs for plotting
+income_df <- rbind(cbind(income_blackout, group = 'Blackout'), cbind(income_noblackout, group = "No Blackout"))
+
+
+# Boxplot distribution of income
+ggplot(income_df, aes(x = group, 
+                   y = INCOME, 
+                   fill = group)) +
+  geom_boxplot(aes(x = group, 
+                   y = INCOME, 
+                   fill = group)) + 
+  labs(x = "Tract",                                                      # Relabel x Axis to Tract
+       y = "Income ($)",                                                      # Relabel axes title so we are looking at Income
+       title = "Houston Tracts Experiencing Blackout in 2021") +   # Define explicit title
+  theme_light() +                                                         # light theme
+  scale_fill_manual(values = c('purple',                                      # Purple representing blackout tracts
+                        'gold'))  +                                  # Grey color NA
+  guides(fill = 'none') +                                          # Remove legend above for box plots, intuitive so no need
+  stat_summary(
+               fun = mean,                                        # We want the function to evaluate the mean out of each grade, defined by x
+               aes(shape = "Mean Income"),                                      # Assign the label that will show up in manual legend
+               geom = 'point',                                            # We want the mean to be visualized as a standout point  
+               col = "black",                                              # Black dot to represent mean income
+               size = 5.5) +                                           # Adjust size of the point
+  scale_shape_manual(values=c("Mean Income" = 20),                  # Mean income assigned to point value which is 20
+                     guide = guide_legend(' '))
 ```
-The next step that I would like to compare is the distribution between homes that did experience a blackout and those that did not
+
+## Summary
+
+After wrangling and aggregating the Houston data from the blackout in February 2021, there was not a significant difference in the distribution between income and the houses that did or did not experience the blackout. The median and mean household income of the census tracts that experienced the blackout were greater than that of the census tracts that did not experience a blackout. However, the homes that did not experience a blackout had a significantly higher count than the houses that did experience a blackout.The limitations of this study are that while the boxplot shows the median household income, there could also be an omitted variable that factors into the preparedness for an extreme weather event in Houston.
