@@ -1,5 +1,5 @@
 ---
-title: "Assignment 3: Identifying the Impacts of Extreme Weather"
+title: "Identifying the Impacts of Extreme Weather"
 author: "Brooke Grazda"
 format: html
 editor: visual
@@ -61,6 +61,8 @@ st_crs(day16_tile5) == st_crs(day16_tile6)
 
 
 ## Difference in Light Intensity
+
+
 ```{r}
 #| code-fold: true
 #| quiet: true
@@ -217,7 +219,9 @@ blackout_highways <- st_difference(blackout_mask_3083, highways)
 #plot(blackout_mask)
 ```
 
+
 ## Identify Homes and Census Tracts with Blackout
+
 
 ```{r, message=FALSE}
 #| code-fold: true
@@ -251,8 +255,6 @@ n <- sum(blackout_homes_logical)
 # Using original buildings_3083 df, use new sum value of homes that were in the blackout area to find more information
 print(paste0("The number of homes within the blackout area is ", n, ", which is ", round(100 * n / nrow(buildings_3083)), "% of all buildings in the area"))
 ```
-
-
 
 ```{r, message=FALSE}
 #| code-fold: true
@@ -392,6 +394,12 @@ ggplot(income_df, aes(x = group,
                      guide = guide_legend(' '))
 ```
 
+
 ## Summary
 
 After wrangling and aggregating the Houston data from the blackout in February 2021, there was not a significant difference in the distribution between income and the houses that did or did not experience the blackout. The median and mean household income of the census tracts that experienced the blackout were greater than that of the census tracts that did not experience a blackout. However, the homes that did not experience a blackout had a significantly higher count than the houses that did experience a blackout.The limitations of this study are that while the boxplot shows the median household income, there could also be an omitted variable that factors into the preparedness for an extreme weather event in Houston.
+
+## References
+
+Wikipedia. 2021. “2021 Texas power crisis.” Last modified October 2, 2021. https://en.wikipedia.org/wiki/2021_Texas_power_crisis.↩︎
+
